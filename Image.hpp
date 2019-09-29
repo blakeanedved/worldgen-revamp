@@ -4,6 +4,7 @@
 #include <string>
 #include <thread>
 #include <functional>
+#include <chrono>
 #include "vendor/include/SDL2/SDL.h"
 #include "vendor/include/noise/noise.h"
 
@@ -44,6 +45,7 @@ class Image {
 		std::function<double(unsigned int)> scaleY;
 		std::function<ImageColor(double)> color;
 		float noiseX, noiseY, noiseZ;
+		std::function<void(double)> OnRender;
 
 	private:
 		std::shared_ptr<noise::module::Module> noiseSampler;
@@ -95,6 +97,9 @@ Image::Image(unsigned int width, unsigned int height) {
 		255.0 * (1.0 + noiseval) / 2.0,
 		255.0
 	};};
+
+	// Initialize the OnRender function (dt*=2 is just to get the warning to go away)
+	this->OnRender = [](double dt){dt*=2;};
 
 	// Initialize the internal noise position offset to 0 for all
 	this->noiseX = 0.0;
@@ -167,7 +172,9 @@ auto Image::internal_render() -> void {
 	SDL_GL_MakeCurrent(this->window, this->context);
 	this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
 	
+	std::chrono::high_resolution_clock timer;
 	while (this->rendering){
+		auto start = timer.now();
 
 		for (unsigned int x = 0; x < this->width; x++){
 			for (unsigned int y = 0; y < this->height; y++){
@@ -182,7 +189,10 @@ auto Image::internal_render() -> void {
 		SDL_RenderPresent(this->renderer);
 
 		// Force the thread to wait up to the maximum length of a frame
-		SDL_Delay(1000.0 / this->fps);
+		//SDL_Delay(1000.0 / this->fps);
+		auto stop = timer.now();
+		double dt = std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count() / 1000.0;
+		this->OnRender(dt);
 	}
 }
 

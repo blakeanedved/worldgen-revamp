@@ -9,9 +9,9 @@ auto main() -> int {
 	auto image = std::make_unique<Image>(WINDOW_SIZE, WINDOW_SIZE);
 	image->InitSDL();
 
-	//auto perlin = noise::module::Voronoi();
-	auto sampler = std::make_shared<noise::module::Voronoi>();
-	//sampler->SetSourceModule(0, perlin);
+	auto perlin = noise::module::Perlin();
+	auto sampler = std::make_shared<noise::module::Clamp>();
+	sampler->SetSourceModule(0, perlin);
 
 	image->scaleX = [](int x) -> double {
 		return static_cast<double>(x) / 100.0;
@@ -21,11 +21,15 @@ auto main() -> int {
 		return static_cast<double>(y) / 100.0;
 	};
 
+	image->OnRender = [&image](double dt) {
+		dt*=2;
+		image->noiseZ += (0.01);
+	};
+
 	image->SetSampler(sampler);
 	image->StartRenderer();
 
 	while (image->PollEvents()){
-		image->noiseZ += 0.000003;
 	}
 
 	return 0;
