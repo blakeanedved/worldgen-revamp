@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include <thread>
+#include <functional>
 #include "vendor/include/SDL2/SDL.h"
 #include "vendor/include/noise/noise.h"
 
