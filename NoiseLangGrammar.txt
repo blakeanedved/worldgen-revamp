@@ -9,6 +9,7 @@
 <assignment> = <identifier> = <module> ( <argument>* <identifier> ) 
 <method> = <identifier> -> <method_identifier> ( <number_argument>* <number> )
 <out> = out <identifier>
-<in> = in <identifier>
 <save> = save <filename>
 <load> = load <filename>
+<show> = show <digit>{1,4}x<digit>{1,4}
+<exit> = exit
