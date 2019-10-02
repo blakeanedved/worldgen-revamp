@@ -1,7 +1,7 @@
 all: main
 
-main: main.cpp
-	g++ -std=c++17 main.cpp -Lvendor/lib -Ivendor/include -lSDL2 -lnoise
+main: main.cpp NoiseLang.hpp
+	g++ -std=c++17  -Lvendor/lib -Ivendor/include -lSDL2 -lnoise main.cpp
 
-debug: main.cpp
-	g++ -std=c++17 main.cpp -g -Lvendor/lib -Ivendor/include -lSDL2 -lnoise
+debug: main.cpp NoiseLang.hpp
+	g++ -std=c++17 -g -Lvendor/lib -Ivendor/include -lSDL2 -lnoise main.cpp
