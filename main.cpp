@@ -1,5 +1,4 @@
 #include <iostream>
-#include "Image.hpp"
 #include "NoiseLang.hpp"
 #include "vendor/include/noise/noise.h"
 

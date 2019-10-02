@@ -67,8 +67,6 @@ namespace NoiseLang {
 			bool is_dead;
 
 			auto internal_render() -> void;
-			//auto gen_texture() -> void;
-			//auto update_texture() -> void;
 
 		public:
 			Image(unsigned int width, unsigned int height);
@@ -123,11 +121,6 @@ namespace NoiseLang {
 			std::vector<NoiseLang::Argument> arguments;
 	};
 
-	class In {
-		public:
-			std::string identifier;
-	};
-
 	class Out {
 		public:
 			std::string identifier;
@@ -143,6 +136,12 @@ namespace NoiseLang {
 			std::string filename;
 	};
 
+	class Show {
+		public:
+			int width;
+			int height;
+	};
+
 	class Interpreter {
 		
 		private:
@@ -154,15 +153,18 @@ namespace NoiseLang {
 			std::regex out;
 			std::regex save;
 			std::regex load;
+			std::regex show;
+			std::regex exit;
 
 			std::regex assignment_iter;
 			std::regex method_iter;
 			std::regex out_iter;
 			std::regex save_load_iter;
+			std::regex show_iter;
 
 			std::vector<std::string> lines;
 
-			bool currently_reading = false;
+			int reading_status;
 			std::shared_ptr<std::thread> reading_thread = nullptr;
 
 			std::unique_ptr<NoiseLang::Image> image = nullptr;
@@ -213,7 +215,7 @@ namespace NoiseLang {
 
 			auto GetDefaultOutModule() -> std::shared_ptr<noise::module::Module>;
 
-			auto StartReading(bool threaded) -> void;
+			auto StartReading() -> void;
 			auto StopReading() -> void;
 
 		private:
@@ -226,8 +228,10 @@ namespace NoiseLang {
 			auto ParseOut(const std::string& line) -> NoiseLang::Out;
 			auto ParseSave(const std::string& line) -> NoiseLang::Save;
 			auto ParseLoad(const std::string& line) -> NoiseLang::Load;
+			auto ParseShow(const std::string& show) -> NoiseLang::Show;
 
-			auto InternalThreadedReader() -> void;
+			auto InternalRead() -> void;
+			auto InternalThreadedRead() -> void;
 
 	};
 
@@ -239,11 +243,14 @@ NoiseLang::Interpreter::Interpreter() {
 	this->out = std::regex("^(out)([ \t]+)([a-zA-Z]{1}[a-zA-Z0-9]*)$");
 	this->save = std::regex("^(save)([ \t]+)([a-zA-z0-9]*\\.?[a-zA-z0-9]+)$");
 	this->load = std::regex("^(load)([ \t]+)([a-zA-z0-9]*\\.?[a-zA-z0-9]+)$");
+	this->show = std::regex("^(show)([ \t]+)(\\d{1,4})x(\\d{1,4})$");
+	this->exit = std::regex("^(exit)([ \t]*)$");
 
 	this->assignment_iter = std::regex("([a-zA-z]{1}[a-zA-z0-9]*)|(abs|add|billow|blend|cache|checkerboard|clamp|const|curve|cylinders|displace|exponent|invert|max|min|multiply|perlin|power|ridgedmulti|rotatepoint|scalebias|scalepoint|select|spheres|terrace|translatepoint|turbulence|voronoi)");
 	this->method_iter = std::regex("([a-zA-Z]{1}[a-zA-Z0-9]*)|([A-Z]{1}[a-zA-z]*)|(-?\\d*\\.?\\d+)");
 	this->out_iter = std::regex("([a-zA-Z]{1}[a-zA-Z0-9]*)$");
 	this->save_load_iter = std::regex("([a-zA-Z0-9]*\\.[a-zA-Z0-9]+)$");
+	this->show_iter = std::regex("(\\d{1,4})");
 
 	this->output_module = "";
 }
@@ -396,6 +403,35 @@ auto NoiseLang::Interpreter::ParseLoad(const std::string& line) -> NoiseLang::Lo
 	}
 
 	return l;
+}
+
+auto NoiseLang::Interpreter::ParseShow(const std::string& line) -> NoiseLang::Show {
+	auto s = NoiseLang::Show();
+
+	auto begin = std::sregex_iterator(line.begin(), line.end(), this->show_iter);
+	auto end = std::sregex_iterator();
+	
+	int token = 0;
+
+	for (;begin != end; ++begin){
+		std::smatch match = *begin;
+		std::string str = match.str();
+
+		std::stringstream ss(str);
+
+		switch (token){
+			case 0: // Width
+				ss >> s.width;
+				break;
+			case 1: // Height
+				ss >> s.height;
+				break;
+		}
+
+		token++;
+	}
+
+	return s;
 }
 
 auto NoiseLang::Interpreter::CheckIdentifierArgs(std::vector<std::string> args) -> bool {
@@ -754,6 +790,30 @@ auto NoiseLang::Interpreter::RunLine(const std::string& line, bool saveline) -> 
 
 		this->Run(l.filename, false);
 
+	} else if (std::regex_match(line, this->show)) {
+
+		auto s = this->ParseShow(line);
+
+		this->image = std::make_unique<NoiseLang::Image>(s.width, s.height);
+		this->image->InitSDL();
+		this->image->OnRender = [this](double dt) {
+			dt*=2;
+			this->image->noiseZ += (0.01);
+		};
+		if (this->output_module == "")	
+			this->image->SetSampler(this->GetDefaultOutModule());
+		else
+			this->image->SetSampler(this->modules[this->output_module].second);
+		this->image->StartRenderer();
+		this->image->PollEvents();
+			
+		this->reading_status = 2;
+		this->reading_thread = std::make_shared<std::thread>(&NoiseLang::Interpreter::InternalThreadedRead, this);
+
+	} else if (std::regex_match(line, this->exit)) {
+
+		this->reading_status = 0;
+
 	} else if (line.size() > 0) {
 
 		// Line is not blank and doesnt match any patterns
@@ -787,54 +847,55 @@ auto NoiseLang::Interpreter::GetDefaultOutModule() -> std::shared_ptr<noise::mod
 	return std::make_unique<noise::module::Const>();
 }
 
-auto NoiseLang::Interpreter::StartReading(bool threaded = false) -> void {
+auto NoiseLang::Interpreter::StartReading() -> void {
 
-	this->currently_reading = true;
-	if (threaded)
-		this->reading_thread = std::make_shared<std::thread>(&NoiseLang::Interpreter::InternalThreadedReader, this);
-	else
-		this->InternalThreadedReader();
+	this->reading_status = 1;
+
+	while (this->reading_status > 0){
+
+		if (this->image != nullptr){
+
+			this->image->PollEvents();
+			if (this->image->IsDead()){
+				this->image = nullptr;
+				this->reading_status = 1;
+				this->reading_thread->join();
+			}
+
+		} else {
+
+			this->InternalRead();
+
+		}
+
+	}
+
+	this->StopReading();
+	if (this->image != nullptr)
+		this->image->StopRenderer();
+
 }
 
 auto NoiseLang::Interpreter::StopReading() -> void {
-	this->currently_reading = false;
+	this->reading_status = 0;
 	if (this->reading_thread != nullptr)
 		this->reading_thread->join();
 }
 
-auto NoiseLang::Interpreter::InternalThreadedReader() -> void {
+auto NoiseLang::Interpreter::InternalRead() -> void {
+
 	std::string line;
-	while (this->currently_reading){
-		std::cout << ">>> ";
-		std::getline(std::cin, line);
-		if (line == "exit"){
-			this->StopReading();
-			if (this->image != nullptr)
-				this->image->StopRenderer();
-			break;
-		} else if (line == "show"){
-			this->image = std::make_unique<NoiseLang::Image>(500, 500);
-			this->image->InitSDL();
-			this->image->OnRender = [this](double dt) {
-				dt*=2;
-				this->image->noiseZ += (0.01);
-			};
-			if (this->output_module == "")	
-				this->image->SetSampler(this->GetDefaultOutModule());
-			else
-				this->image->SetSampler(this->modules[this->output_module].second);
-			this->image->StartRenderer();
-			this->image->PollEvents();
-		} else if (line != "" && this->RunLine(line) == NoiseLang::Error){
-			std::cout << this->GetError() << std::endl;
-		}
-		if (this->image != nullptr){
-			this->image->PollEvents();
-			if (this->image->IsDead()){
-				this->StopReading();
-				break;
-			}
-		}
+	std::cout << ">>> ";
+	std::getline(std::cin, line);
+	if (line != "" && this->RunLine(line) == NoiseLang::Error){
+		std::cout << this->GetError() << std::endl;
+	}
+
+}
+
+auto NoiseLang::Interpreter::InternalThreadedRead() -> void {
+	while (this->reading_status == 2){
+		this->InternalRead();
 	}
 }
 
@@ -897,7 +958,7 @@ NoiseLang::Image::~Image() {
 auto NoiseLang::Image::InitSDL() -> void {
 	// Initialize the window and events
 	SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
-	this->window = SDL_CreateWindow("libnoise", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, this->width, this->height, SDL_WINDOW_BORDERLESS | SDL_WINDOW_RESIZABLE);
+	this->window = SDL_CreateWindow("libnoise", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, this->width, this->height, SDL_WINDOW_RESIZABLE);
 
 	// Create the opengl context and set tell it not to make this thread the current owner
 	this->context = SDL_GL_GetCurrentContext();
@@ -942,49 +1003,10 @@ auto NoiseLang::Image::PollEvents() -> bool {
 	return true;
 }
 
-//auto NoiseLang::Image::gen_texture() -> void {
-	//SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STREAMING, this->width, this->height);
-//}
-
-//auto NoiseLang::Image::update_texture() -> void {
-	//int* pixels = nullptr;
-	//Uint32 color;
-	//SDL_PixelFormat pixelFormat;
-	//pixelFormat.format = SDL_PIXELFORMAT_RGBA8888;
-	//SDL_LockTexture(this->texture, nullptr, (void**)&pixels, nullptr);
-	//for (unsigned int x = 0; x < this->width; x++){
-		//for (unsigned int y = 0; y < this->height; y++){
-			////color = SDL_MapRGBA(&pixelFormat, x % 256, y % 256, 0, 255);
-			//color = 0;
-			//Uint8 r = x % 256;
-			//Uint8 g = y % 256;
-			//Uint8 b = 0;
-			//Uint8 a = 255;
-			//color += r;
-			//color <<= 8;
-			//color += g;
-			//color <<= 8;
-			//color += b;
-			//color <<= 8;
-			//color += a;
-
-			//pixels[y * this->width + x] = color;
-		//}
-	//}
-	//SDL_UnlockTexture(this->texture);
-//}
-
 auto NoiseLang::Image::internal_render() -> void {
 	// Make this thread the owner of the opengl rendering context
 	SDL_GL_MakeCurrent(this->window, this->context);
 	this->renderer = SDL_CreateRenderer(this->window, -1, SDL_RENDERER_SOFTWARE);
-	//this->gen_texture();
-	//this->update_texture();
-	//SDL_Rect rect;
-	//rect.x = 0;
-	//rect.y = 0;
-	//rect.w = this->width;
-	//rect.h = this->height;
 
 	std::chrono::high_resolution_clock timer;
 	while (this->rendering){
@@ -999,8 +1021,6 @@ auto NoiseLang::Image::internal_render() -> void {
 			}
 		}
 		
-		//SDL_RenderCopy(this->renderer, this->texture, NULL, &rect);
-
 		// Force the renderer to show its changes in the window
 		SDL_RenderPresent(this->renderer);
 
