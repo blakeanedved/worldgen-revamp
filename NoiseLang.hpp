@@ -521,9 +521,9 @@ auto NoiseLang::Interpreter::RunLine(const std::string& line, bool saveline) -> 
 			// }}}
 
 		} else {
-			
+
 			status = NoiseLang::Error;
-			this->AddError("Redefinition of " + a.identifier);
+			this->AddError("Duplicate identifier `" + a.identifier + "`");
 
 		}
 
