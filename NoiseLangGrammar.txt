@@ -1,0 +1,14 @@
+<number> = <digit>* <period>? <digit>+ <f>?
+<identifier> = <alphabetic> <alphanumeric>*
+<module> = <abs|add|billow|blend|cache|checkerboard|clamp|const|curve|cylinders|displace|exponent|invert|max|min|multiply|perlin|power|ridgedmulti|rotatepoint|scalebias|scalepoint|select|spheres|terrace|translatepoint|turbulence|voronoi>
+<method_identifier> = <capital_alphabetic> <alphabetic>*
+<argument> = <identifier> ,
+<number_argument> = <number> ,
+<filename> = <alphanumeric>* <period>? <alphanumeric>+
+
+<assignment> = <identifier> = <module> ( <argument>* <identifier> ) 
+<method> = <identifier> -> <method_identifier> ( <number_argument>* <number> )
+<out> = out <identifier>
+<in> = in <identifier>
+<save> = save <filename>
+<load> = load <filename>
