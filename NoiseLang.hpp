@@ -119,6 +119,17 @@ namespace NoiseLang {
 			std::string identifier;
 			std::string method;
 			std::vector<NoiseLang::Argument> arguments;
+
+			auto Print() -> void {
+				std::cout << "(IDENTIFIER: \"" << this->identifier << "\") -> (METHOD: \"" << this->method << "\") (ARGUMENTS: [";
+				for (auto& arg : this->arguments){
+					if (arg.GetType() == "number")
+						std::cout << arg.number << ", ";
+					else
+						std::cout << "\"" << arg.identifier << "\", ";
+				}
+				std::cout << "]);" << std::endl;
+			}
 	};
 
 	class Out {
@@ -604,7 +615,9 @@ auto NoiseLang::Interpreter::RunLine(const std::string& line, bool saveline) -> 
 
 				// Method call is legit
 				// auto mod = std::dynamic_pointer_cast<NOISE_MODULE_TYPE>(it->second.second);
-
+				
+				m.Print();
+				
 				if (it->second.first == "abs"){
 					auto mod = std::dynamic_pointer_cast<noise::module::Abs>(it->second.second);
 					if (m.method == "SetSourceModule") mod->SetSourceModule(static_cast<int>(m.arguments[0].number), *this->modules.find(m.arguments[1].identifier)->second.second);
